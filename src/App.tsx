@@ -194,6 +194,8 @@ const Seating = () => {
       const updatedSeats = seatData.map((seat) =>
         seat.id === selectedSeat.id
           ? { ...seat, student: selectedSeat.student }
+          : seat.student?.id === selectedSeat.student?.id
+          ? { ...seat, student: null }
           : seat
       )
       setSeatData(updatedSeats)
