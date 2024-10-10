@@ -16,10 +16,12 @@ body {
   margin: 0;
   display: flex;
   place-items: center;
-  min-width: 320px;
+  width: 100vw;
   min-height: 100vh;
 }
-
+#root {
+  width: 100vw;
+}
 @layer base {
   :root {
     --background: 0 0% 100%;

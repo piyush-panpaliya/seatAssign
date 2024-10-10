@@ -1,8 +1,7 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo, memo } from 'react'
 import { useDropzone } from 'react-dropzone'
 import Papa from 'papaparse'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { sections } from './lib/seats'
 
@@ -10,6 +9,7 @@ interface Student {
   name: string
   id: string
 }
+
 interface Seat {
   id: string
   section: string
@@ -36,7 +36,8 @@ const getSeats = (sectionList: typeof sections) => {
     return acc
   }, [] as Seat[])
 }
-const Seat = ({
+
+const SeatComponent = ({
   seat,
   selected,
   onClick
@@ -44,219 +45,240 @@ const Seat = ({
   seat: Seat
   selected: boolean
   onClick: (seat: Seat) => void
-}) => {
-  return (
-    <button
-      className={`bg-white-50 m-0.5 w-8 cursor-pointer border border-gray-400 px-1 py-1 text-center text-[8px] ${
-        selected
-          ? 'bg-green-600'
-          : seat.blocked
-          ? 'bg-gray-300'
-          : seat.student
-          ? 'bg-red-400'
-          : ''
-      }`}
-      // className={cn(
-      //   'bg-white-50 m-0.5 w-8 cursor-pointer border border-gray-400 px-1 py-1 text-center text-[8px]',
-      //   selected && 'bg-green-600',
+}) => (
+  <button
+    className={`bg-white-50 m-0.5 w-8 cursor-pointer border border-gray-400 px-1 py-1 text-center text-[8px] ${
+      selected
+        ? 'bg-green-600'
+        : seat.blocked
+        ? 'bg-gray-300'
+        : seat.student
+        ? 'bg-red-400'
+        : ''
+    }`}
+    onClick={() => onClick(seat)}
+    disabled={seat.blocked}
+  >
+    {seat.id}
+  </button>
+)
 
-      // )}
-      onClick={() => onClick(seat)}
-      disabled={seat.blocked}
-    >
-      {seat.id}
-    </button>
-  )
-}
+const RenderSection = memo(
+  ({
+    section,
+    seats,
+    handleSeatClick,
+    selectedSeat
+  }: {
+    section: string
+    seats: Seat[]
+    selectedSeat: Seat | null
+    handleSeatClick: (seat: Seat) => void
+  }) => {
+    const sectionSeats = seats
+      .filter((seat) => seat.section === section)
+      .reduce((acc, curr) => {
+        const existingRow = acc.find((item) => item.row === curr.row)
 
-const RenderSection = ({
-  section,
-  seats,
-  handleSeatClick,
-  selectedSeat
-}: {
-  section: string
-  seats: Seat[]
-  selectedSeat: Seat | null
-  handleSeatClick: (seat: Seat) => void
-}) => {
-  const sectionSeats = seats
-    .filter((seat) => seat.section === section)
-    .reduce((acc, curr) => {
-      const existingRow = acc.find((item) => item.row === curr.row)
+        if (existingRow) {
+          existingRow.seats.push(curr)
+        } else {
+          acc.push({ row: curr.row, seats: [curr] })
+        }
 
-      if (existingRow) {
-        existingRow.seats.push(curr)
-      } else {
-        acc.push({ row: curr.row, seats: [curr] })
-      }
+        return acc
+      }, [] as { row: string; seats: Seat[] }[])
 
-      return acc
-    }, [] as { row: string; seats: Seat[] }[])
-  if (!sectionSeats.length) return 'Error'
-  console.log(section, 'loading...')
+    if (!sectionSeats.length) return 'Error'
+    return (
+      <div
+        key={section}
+        className='p-2 border rounded flex flex-col items-center gap-2'
+      >
+        <p className='text-lg font-bold'>Section {section}</p>
+        <div className='flex flex-col items-center gap-1'>
+          {sectionSeats.map((row) => (
+            <div
+              key={row.row}
+              className='flex flex-row-reverse items-center justify-center gap-x-1'
+            >
+              {row.seats.map((seat) => (
+                <SeatComponent
+                  key={seat.id}
+                  onClick={handleSeatClick}
+                  selected={selectedSeat?.id === seat.id}
+                  seat={seat}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  },
+  (prevProps, nextProps) =>
+    prevProps.seats === nextProps.seats &&
+    prevProps.selectedSeat?.id === nextProps.selectedSeat?.id
+)
+
+const FileDrop = ({ onDrop }: { onDrop: (files: File[]) => void }) => {
+  const [fileName, setFileName] = useState<string | null>(null)
+  const handleDrop = (acceptedFiles: File[]) => {
+    setFileName(acceptedFiles[0]?.name || '')
+    onDrop(acceptedFiles)
+  }
+  const { getRootProps, getInputProps } = useDropzone({ onDrop: handleDrop })
   return (
     <div
-      key={section}
-      className='p-2 border rounded flex flex-col items-center gap-2'
+      {...getRootProps()}
+      className='border-2 border-dashed border-gray-300 p-4 mb-4'
     >
-      <p className='text-lg font-bold'>Section {section}</p>
-      <div className='flex flex-col items-center gap-1'>
-        {sectionSeats.map((row) => (
-          <div
-            key={row.row}
-            className='flex flex-row-reverse items-center justify-center gap-x-1'
-          >
-            {row.seats.map((seat) => (
-              <Seat
-                key={seat.id}
-                onClick={handleSeatClick}
-                selected={selectedSeat?.id === seat.id}
-                seat={seat}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
+      <input {...getInputProps()} />
+      {fileName ? (
+        <p className='text-md text-gray-600'>{fileName}</p>
+      ) : (
+        <p className='cursor-pointer'>
+          Drag 'n' drop a CSV file here, or click to select one
+        </p>
+      )}
     </div>
   )
 }
 
 const Seating = () => {
   const [students, setStudents] = useState<Student[]>([])
-  const [seats, setSeats] = useState<Seat[]>(getSeats(sections))
+  const seats = useMemo(() => getSeats(sections), [])
+  const [seatData, setSeatData] = useState<Seat[]>(seats)
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null)
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     Papa.parse(file, {
       complete: (result) => {
-        const filteredStudents = result.data.filter(
-          // eslint-disable-next-line
-          (row: any) => row.name && row.roll_no
-        ) as Student[]
-        const parsedStudents = filteredStudents.map((row: Student) => ({
-          name: row.name,
-          id: row.id
-        }))
+        console.log(result)
+        const parsedStudents = result.data
+          .filter((row: any) => row.name && row.roll_no)
+          .map((row: any) => ({ name: row.name, id: row.roll_no }))
+        console.log(parsedStudents)
         setStudents(parsedStudents)
       },
       header: true
     })
-    console.log(students)
   }, [])
 
-  const { getRootProps, getInputProps } = useDropzone({ onDrop })
-
-  const assignRandomSeats = () => {
+  const assignRandomSeats = useCallback(() => {
     const shuffledStudents = [...students].sort(() => 0.5 - Math.random())
-    const newSeats = seats.map((seat, index) => ({
-      ...seat,
-      student:
-        index < shuffledStudents.length && !seat.blocked
-          ? shuffledStudents[index]
-          : null
-    }))
-    setSeats(newSeats)
-  }
+    let studentIndex = 0
 
-  const handleSeatClick = (seat: Seat) => {
-    if (seat.id === selectedSeat?.id) {
-      setSelectedSeat(null)
-      return
-    }
-    setSelectedSeat(seat)
-    setSelectedStudent(seat.student)
-  }
+    const updatedSeats = seatData.map((seat) => {
+      if (!seat.blocked && studentIndex < shuffledStudents.length) {
+        const assignedStudent = shuffledStudents[studentIndex]
+        studentIndex++
+        return { ...seat, student: assignedStudent }
+      } else {
+        return { ...seat, student: null }
+      }
+    })
+    setSeatData(updatedSeats)
+  }, [students, seatData])
 
-  const handleStudentAssignment = () => {
-    if (selectedSeat && selectedStudent) {
-      const newSeats = seats.map((seat) =>
+  const handleSeatClick = useCallback(
+    (seat: Seat) => {
+      setSelectedSeat(selectedSeat?.id === seat.id ? null : seat)
+    },
+    [selectedSeat]
+  )
+
+  const handleStudentAssignment = useCallback(() => {
+    if (selectedSeat && selectedSeat.student) {
+      const updatedSeats = seatData.map((seat) =>
         seat.id === selectedSeat.id
-          ? { ...seat, student: selectedStudent }
+          ? { ...seat, student: selectedSeat.student }
           : seat
       )
-      setSeats(newSeats)
+      setSeatData(updatedSeats)
       setSelectedSeat(null)
-      setSelectedStudent(null)
     }
-  }
+  }, [selectedSeat, seatData])
 
-  const handleStudentRemoval = () => {
+  const handleStudentRemoval = useCallback(() => {
     if (selectedSeat) {
-      const newSeats = seats.map((seat) =>
+      const updatedSeats = seatData.map((seat) =>
         seat.id === selectedSeat.id ? { ...seat, student: null } : seat
       )
-      setSeats(newSeats)
+      setSeatData(updatedSeats)
       setSelectedSeat(null)
-      setSelectedStudent(null)
     }
-  }
+  }, [selectedSeat, seatData])
 
+  const handleDownloadCSV = useCallback(() => {
+    const csvContent = [
+      ['Seat No', 'Section', 'Row No', 'ID', 'Name'], // CSV Header
+      ...seatData
+        .filter((seat) => seat.student)
+        .map((seat) => [
+          seat.id,
+          seat.section,
+          seat.row,
+          seat.student?.id || 'Unassigned',
+          seat.student?.name || 'Unnamed'
+        ])
+    ]
+    const csvString = csvContent.map((row) => row.join(',')).join('\n')
+    const blob = new Blob([csvString], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'seats.csv'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }, [seatData])
   return (
-    <div className='max-w-screen flex justify-between'>
-      <div className='h-screen grow flex flex-col items-start'>
+    <div className='w-full min-h-screen h-full flex justify-between overflow-x-hidden p-4'>
+      <div className='h-screen grow flex flex-col items-start max-w-[80%]'>
         <p className='text-2xl font-bold mb-4'>Seating Arrangement</p>
-        <div className='overflow-auto flex flex-col items-center'>
-          <p className='mb-4 text-center font-bold'>SCREEN</p>
-          <div className='grid grid-cols-3 gap-4 mb-4 w-max'>
-            <RenderSection
-              selectedSeat={selectedSeat}
-              section='C'
-              seats={seats.filter((s) => s.section === 'C')}
-              handleSeatClick={handleSeatClick}
-            />
-            <RenderSection
-              selectedSeat={selectedSeat}
-              section='B'
-              handleSeatClick={handleSeatClick}
-              seats={seats.filter((s) => s.section === 'B')}
-            />
-            <RenderSection
-              selectedSeat={selectedSeat}
-              handleSeatClick={handleSeatClick}
-              section='A'
-              seats={seats.filter((s) => s.section === 'A')}
-            />
+        <div className='overflow-auto w-full grow '>
+          <div className='flex flex-col  '>
+            <p className='mb-4 text-center font-bold w-full'>SCREEN</p>
+            <div className='grid grid-cols-3 gap-4 mb-4 w-max'>
+              {['C', 'B', 'A'].map((section) => (
+                <RenderSection
+                  key={section}
+                  selectedSeat={selectedSeat}
+                  section={section}
+                  seats={seatData}
+                  handleSeatClick={handleSeatClick}
+                />
+              ))}
+            </div>
+            <div className='grid grid-cols-3 gap-4 mb-4 w-max'>
+              {['F', 'E', 'D'].map((section) => (
+                <RenderSection
+                  key={section}
+                  selectedSeat={selectedSeat}
+                  section={section}
+                  seats={seatData}
+                  handleSeatClick={handleSeatClick}
+                />
+              ))}
+            </div>
+            <p className='text-center mb-4 w-full'>Entrance</p>
           </div>
-          <div className='grid grid-cols-3 gap-4 mb-4 w-max'>
-            <RenderSection
-              selectedSeat={selectedSeat}
-              handleSeatClick={handleSeatClick}
-              section='F'
-              seats={seats.filter((s) => s.section === 'F')}
-            />
-            <RenderSection
-              selectedSeat={selectedSeat}
-              handleSeatClick={handleSeatClick}
-              section='E'
-              seats={seats.filter((s) => s.section === 'E')}
-            />
-            <RenderSection
-              selectedSeat={selectedSeat}
-              handleSeatClick={handleSeatClick}
-              section='D'
-              seats={seats.filter((s) => s.section === 'D')}
-            />
-          </div>
-          <p className='text-center mb-4'>Entrance</p>
         </div>
       </div>
-      <div className='flex flex-col md:w-1/3 p-4'>
-        <div
-          {...getRootProps()}
-          className='border-2 border-dashed border-gray-300 p-4 mb-4'
-        >
-          <input {...getInputProps()} />
-          <p className='cursor-pointer'>
-            Drag 'n' drop a CSV file here, or click to select one
-          </p>
-        </div>
+      <div className='min-h-full flex flex-col md:w-1/5 p-4'>
+        <FileDrop onDrop={onDrop} />
 
         <Button onClick={assignRandomSeats} className='mb-4'>
           Assign Random Seats
         </Button>
+        {seatData.some((seat) => seat.student) && (
+          <Button onClick={handleDownloadCSV} className='mb-4'>
+            Download Assigned Seats
+          </Button>
+        )}
         {selectedSeat && (
           <div className='mb-4'>
             <h2 className='text-xl font-bold mb-2'>
@@ -266,13 +288,12 @@ const Seating = () => {
             <Label htmlFor='studentSelect'>Select Student:</Label>
             <select
               id='studentSelect'
-              // as='select'
-              value={selectedStudent?.id || ''}
-              onChange={(e) =>
-                setSelectedStudent(
-                  students.find((s) => s.id === e.target.value) || null
-                )
-              }
+              value={selectedSeat.student?.id || ''}
+              onChange={(e) => {
+                const student = students.find((s) => s.id === e.target.value)
+                if (!student) return
+                setSelectedSeat({ ...selectedSeat, student })
+              }}
               className='mb-2'
             >
               <option value=''>Select a student</option>
